@@ -1,0 +1,105 @@
+---
+title: "DA5030 Logistic Regression"
+author: "Daware, Aditya"
+date: "Spring 2025"
+---
+
+## Q 2: Reading the CSV file
+```{r read CSV}
+url <- "https://s3.us-east-2.amazonaws.com/artificium.us/datasets/bank-term-deposit-marketing-full.csv"
+df <- read.csv(url,sep= ";", stringsAsFactors = F)
+```
+
+## Q 3: Exploratory Data Analysis
+```{r}
+head(df)
+str(df)
+summary(df)
+
+
+```
+We explore the data and understand the structure and summary of the data.
+
+### Checking for missing values
+```{r Missing data}
+any(is.na(df))
+```
+The dataset has no missing data.
+
+### Visualising the data
+```{r Visualize}
+library(ggplot2)
+ggplot(df, aes(x = y)) + geom_bar() + ggtitle("Class Distribution")
+
+ggplot(df, aes(x = age)) + geom_histogram(binwidth = 5, fill = "blue", alpha = 0.7) + ggtitle("Age Distribution")
+```
+
+### Check for Multicollinearity
+```{r}
+library(corrplot)
+corr_matrix <- cor(model.matrix(~.-1, data = df))
+corrplot(corr_matrix, method = "color")
+```
+Did not see any highly correlated features above the value of 0.5.
+
+
+## Q 4: Split Data into Training and Validation Sets
+```{r}
+library(ggplot2)
+library(lattice)
+library(caret)
+
+train_index <- createDataPartition(df$y, p = 0.8, list = FALSE)
+train_data <- df[train_index, ]
+test_data <- df[-train_index, ]
+```
+Splitting the dataset in train and test.
+
+## Q 5: Encode Categorical Variables (Weight of Evidence Encoding)
+```{r}
+# Convert target variable to binary
+train_data$y <- ifelse(train_data$y == "yes", 1, 0)
+test_data$y <- ifelse(test_data$y == "yes", 1, 0)
+```
+Encoding the target variable. 
+
+## Q 6: Build Logistic Regression Model (All Features)
+```{r}
+log_model <- glm(y ~ ., data = train_data, family = binomial)
+summary(log_model)
+```
+
+
+## Q 7: Build Logistic Regression Model (Significant Features Only)
+```{r}
+log_model_reduced <- step(log_model, direction = "backward")
+summary(log_model_reduced)
+```
+
+
+### Model Evaluation
+```{r}
+pred_probs <- predict(log_model_reduced, newdata = test_data, type = "response")
+predictions <- ifelse(pred_probs > 0.5, 1, 0)
+conf_matrix <- table(Predicted = predictions, Actual = test_data$y)
+conf_matrix
+
+# Calculate Accuracy, TPR, and TNR
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+tpr <- conf_matrix[2, 2] / sum(conf_matrix[, 2])  # True Positive Rate
+tnr <- conf_matrix[1, 1] / sum(conf_matrix[, 1])  # True Negative Rate
+
+cat("Accuracy:", accuracy, "\n")
+cat("True Positive Rate (TPR):", tpr, "\n")
+cat("True Negative Rate (TNR):", tnr, "\n")
+```
+
+
+## Q 9: Comparison with Decision Tree Model
+The logistic regression model provides probability-based classification, whereas decision trees use rule-based segmentation. 
+1. **Performance:** Logistic regression may generalize better for linear relationships, while decision trees excel with complex interactions.
+2. **Interpretability:** Logistic regression coefficients are straightforward to interpret, while decision trees offer clear decision paths.
+3. **Accuracy:** Comparing the accuracy, TPR, and TNR with your decision tree model (referencing previous results) helps determine which model performed better.
+
+
+

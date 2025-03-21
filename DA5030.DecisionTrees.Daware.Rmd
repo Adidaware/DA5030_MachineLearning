@@ -1,0 +1,169 @@
+---
+title: "DA5030 Decision Trees"
+author: "Daware, Aditya"
+date: "Spring 2025"
+---
+
+## Load Data
+```{r Q2}
+url<- "https://s3.us-east-2.amazonaws.com/artificium.us/datasets/bank-term-deposit-marketing-full.csv"
+df <- read.csv(url, sep = ";", stringsAsFactors = F)
+head(df)
+```
+
+## Exploratory Data Analysis
+```{r Q3}
+head(df)
+summary(df)
+str(df)
+
+# Check for missing values
+sum(is.na(df))
+```
+
+## Data Visualization
+```{r Q3 Part 2}
+library(ggplot2)
+# Visualize class distribution
+ggplot(df, aes(x = y)) + geom_bar(fill = "gray") + theme_minimal() + ggtitle("Class Distribution")
+
+# Example: Age distribution
+ggplot(df, aes(x = age)) + geom_histogram(binwidth = 5, fill = "gray", color = "black") + theme_minimal() + ggtitle("Age Distribution")
+```
+
+## Splitting Data into Training and Validation Sets
+```{r Q4}
+library(lattice)
+library(caret)
+
+trainIndex <- createDataPartition(df$y, p = 0.8, list = FALSE)
+trainData <- df[trainIndex, ]
+validData <- df[-trainIndex, ]
+
+prop.table(table(trainData$y)) * 100
+prop.table(table(validData$y)) * 100
+```
+
+## Decision Tree Model with rpart
+```{r Q5}
+library(rpart)
+tree_model <- rpart(y ~ ., data = trainData, method = "class", parms = list(split = "gini"), control = rpart.control(maxdepth = 5))
+```
+
+## Visualizing Decision Tree
+```{r Q6}
+library(rpart.plot)
+rpart.plot(tree_model)
+```
+
+## Model Evaluation on Validation Set
+```{r Q7}
+## Model Evaluation on Validation Set
+library(caret)
+
+# Convert `y` to factor in the dataset
+trainData$y <- as.factor(trainData$y)
+validData$y <- as.factor(validData$y)
+
+# Predict and convert the output to factor
+pred <- predict(tree_model, validData, type = "class")
+pred <- as.factor(pred)
+
+# Ensure the factor levels are the same
+pred <- factor(pred, levels = levels(validData$y))
+
+# Compute confusion matrix
+conf_matrix <- confusionMatrix(pred, validData$y)
+conf_matrix
+
+```
+
+## Hyperparameter Tuning using plotcp()
+```{r Q8}
+
+plotcp(tree_model)
+
+optimal_cp <- tree_model$cptable[which.min(tree_model$cptable[, "xerror"]), "CP"]
+pruned_tree <- prune(tree_model, cp = optimal_cp)
+rpart.plot(pruned_tree)
+```
+The cp(complexity parameter) controls the trade of between the model complexity and generalization. High cp values(>1.00) makes the tree more generalized, while small cp values(<0.1) makes the tree more complex and detailed. The best optimal in our case is 0.01, resulting in higher accuracy in predictions.
+
+The maxdepth value of 5 is the most optimal, any value below 5 reduces the branches and complexity of the tree and based on the data any value above 5 gives the same result as value set at 5.
+
+
+## Boosted Decision Tree using C50
+```{r Q9}
+library(C50)
+c50_model <- C5.0(y ~ ., data = trainData, trials = 20)
+# Predict and convert to factor
+pred_c50 <- predict(c50_model, validData)
+pred_c50 <- as.factor(pred_c50)
+pred_c50 <- factor(pred_c50, levels = levels(validData$y))
+
+# Compute confusion matrix
+conf_matrix_c50 <- confusionMatrix(pred_c50, validData$y)
+conf_matrix_c50
+
+```
+
+## Model Comparison
+```{r Q10}
+
+writeLines(c("Performance Comparison", conf_matrix$overall["Accuracy"], conf_matrix_c50$overall["Accuracy"]))
+
+```
+## Evaluation of the C50 Boosted Decision Tree Model
+
+The performance of the **C50 boosted decision tree model** was evaluated on the validation dataset, and the results are as follows:
+
+- **Overall Accuracy**: `r conf_matrix_c50$overall["Accuracy"]`
+- **True Positive Rate (TPR)** (Sensitivity/Recall for the positive class): `r conf_matrix_c50$byClass["Sensitivity"]`
+- **True Negative Rate (TNR)** (Specificity for the negative class): `r conf_matrix_c50$byClass["Specificity"]`
+
+### **Analysis of Performance**
+1. **Overall Accuracy**  
+   The C50 model achieved an **accuracy of `r conf_matrix_c50$overall["Accuracy"]`**, indicating that it correctly classified a high proportion of validation samples. This suggests that the model effectively learns patterns from the training data and generalizes well.
+
+2. **Performance Across Classes**  
+   - The **True Positive Rate (TPR)** of `r conf_matrix_c50$byClass["Sensitivity"]` suggests how well the model identifies actual positive cases (customers likely to subscribe to the term deposit).  
+   - The **True Negative Rate (TNR)** of `r conf_matrix_c50$byClass["Specificity"]` reflects the model's ability to correctly classify negative cases (customers unlikely to subscribe).  
+
+3. **Key Observations**  
+   - If the TPR is high but the TNR is low, the model may be biased towards predicting positives, potentially increasing false positives.  
+   - If the TNR is high but the TPR is low, the model might be conservative in predicting positives, leading to more false negatives.  
+   - A well-balanced model should have **comparable TPR and TNR values**, ensuring both classes are predicted with similar reliability.
+
+### **Conclusion**
+The C50 boosted decision tree model demonstrates **strong predictive performance** with high overall accuracy and excellent sensitivity. However, its lower specificity suggests that further tuning may be necessary to improve classification of the negative class. Balancing sensitivity and specificity through hyperparameter tuning and threshold adjustments will enhance the model’s practical effectiveness.
+
+
+## Model Comparison and Performance Analysis (Question 11)
+
+The two decision tree models **rpart (CART Decision Tree)** and **C5.0 (Boosted Decision Tree)** show different levels of performance based on their accuracy scores. 
+
+### **Comparison of Performance**
+- The accuracy of each model is displayed in the console output:
+  - **rpart Model Accuracy**: `r conf_matrix$overall["Accuracy"]`
+  - **C5.0 Model Accuracy**: `r conf_matrix_c50$overall["Accuracy"]`
+- Generally, the **C5.0 model** tends to outperform the rpart model due to its **boosting mechanism**, which reduces bias and variance.
+
+### **Key Differences**
+1. **Boosting Effect in C5.0**:  
+   - The C5.0 model uses **boosting**, which means it builds multiple decision trees and combines their outputs, leading to **higher accuracy and lower variance**.
+   - The rpart model is a **single decision tree**, which can suffer from overfitting or underfitting depending on pruning.
+
+2. **Complexity and Interpretability**:  
+   - The **rpart tree** is generally more interpretable because it is a single decision tree with clear decision boundaries.  
+   - The **C5.0 model** may be harder to interpret as it consists of multiple boosted trees, but it usually **generalizes better**.
+
+### **Which Model is Superior?**
+According to **'No free lunch theorem'**, no machine learning algorithm is better than other, it ultimately comes down to type of data, but we can still draw some conclusions based on the results.
+
+**If accuracy is the primary concern, C5.0 is usually **superior** due to its boosting approach.  
+**If interpretability is the priority**, the rpart model might be preferable.  
+**If computational efficiency is a concern**, C5.0 may take longer to train due to boosting, whereas rpart is faster.
+
+### **Conclusion**
+While both models serve as strong classifiers, **C5.0 is generally the superior model due to its improved predictive performance via boosting**. However, if a simpler and more interpretable model is needed, the rpart model might still be a viable choice.
+

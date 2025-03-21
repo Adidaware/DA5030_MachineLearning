@@ -1,0 +1,231 @@
+---
+title: "DA5030 Regression"
+author: "Daware, Aditya"
+date: "Spring 2025"
+---
+
+## Q 1: Reading the CSV file
+```{r readCSV}
+url <- "https://s3.us-east-2.amazonaws.com/artificium.us/datasets/cpu-data.csv"
+
+colnames <- c("MYCT", "MbMIN", "MMAX", "CACH", "CHMIN", "CHMAX", "PRP")
+
+df <- read.csv(url, header = FALSE, col.names = colnames, stringsAsFactors = FALSE)
+
+```
+
+## Q 3: Data Exploration
+```{r Explore data}
+str(df)
+summary(df)
+head(df)
+
+```
+
+## Q 4: Checking for missing values
+```{r Missing Values}
+column.names <- colnames(df)
+any(is.na(df[, column.names]))
+```
+We check if there are any missing values in the features of the datasets. Missing values are found.
+
+### Handling Missing Data
+```{r Finding the missing data}
+missing.value <- which(is.na(df), arr.ind = TRUE)
+missing.value
+```
+We pinpoint the missing values and extract the column number. 
+
+
+## Q 5: Check for outliers
+```{r Outliers}
+z.value<- function(column){
+  return(abs((column - mean(column)) / sd(column)))
+}
+numeric.columns <- sapply(df, is.numeric)
+
+binary.columns <- sapply(df, function(col) all(unique(na.omit(col)) %in% c(0, 1)))
+
+df.numeric <- df[, numeric.columns & !binary.columns]
+
+outlier_results <- list()
+
+for (c in colnames(df.numeric)) {
+  r <- z.value(df.numeric[[c]])
+  out <- any(r >= 3, na.rm = TRUE)
+
+  outlier_results[[c]] <- list( r, out)
+}
+outliers <- names(outlier_results)[sapply(outlier_results, function(x) x[[2]])]
+outliers
+```
+We check if there are outliers and in which column. In our case, the outliers are found in the column with values of Cholesterol Triglycerides. 
+
+### Pinpointing the outliers
+```{r Pinpointing outliers}
+outlier_values <- list()
+
+for (col in outliers) {
+  z_values <- abs((df[[col]] - mean(df[[col]], na.rm = TRUE)) / sd(df[[col]], na.rm = TRUE))
+  outlier_indices <- which(z_values >= 3)
+
+  outlier_values[[col]] <- df[[col]][outlier_indices]
+}
+
+outlier_values
+
+```
+In this step we locate the exact location of the outliers.
+
+
+```{r}
+impute_regression <- function(df, target_col) {
+  missing_rows <- is.na(df[[target_col]])
+  if(sum(missing_rows) == 0) return(df)
+  
+  predictors <- setdiff(names(df), target_col)
+  
+  model <- lm(as.formula(paste(target_col, "~", paste(predictors, collapse="+"))), 
+              data = df[!missing_rows, ])
+
+  df[missing_rows, target_col] <- predict(model, newdata = df[missing_rows, ])
+  return(df)
+}
+
+numeric_cols <- names(df)[sapply(df, is.numeric)]
+for(col in numeric_cols) {
+  df <- impute_regression(df, col)
+}
+
+sapply(df, function(x) sum(is.na(x)))
+```
+Made use of regression to impute values for missing values and outliers.
+
+## Checking for missing values again
+```{r Missing.Values}
+column.names <- colnames(df)
+any(is.na(df[, column.names]))
+```
+
+## Q 6: Checking for Distribution
+```{r Distribution}
+hist(df$PRP)
+library(e1071)
+
+numeric_cols <- names(df)[sapply(df, is.numeric)]
+par(mfrow = c(2,3))  # Adjust the layout for multiple plots
+for(col in numeric_cols) {
+  hist(df[[col]], main=paste("Histogram of", col), xlab=col)
+  qqnorm(df[[col]], main=paste("QQ Plot of", col))
+  qqline(df[[col]])
+}
+
+skew_values <- sapply(df[numeric_cols], function(x) skewness(x, na.rm = TRUE))
+skew_values
+
+# Applying log transformation to skewed features
+df_transformed <- df 
+for(col in numeric_cols) {
+  if(skewness(df[[col]], na.rm = TRUE) > 1) {
+    offset <- ifelse(min(df[[col]], na.rm = TRUE) <= 0, abs(min(df[[col]], na.rm = TRUE)) + 1, 0)
+    df_transformed[[col]] <- log(df[[col]] + offset)
+  }
+}
+
+# Plot the transformed features to check for improved normality
+par(mfrow = c(2,3))
+for(col in numeric_cols) {
+  hist(df_transformed[[col]], main=paste("Transformed Histogram of", col), xlab=col)
+  qqnorm(df_transformed[[col]], main=paste("Transformed QQ Plot of", col))
+  qqline(df_transformed[[col]])
+}
+
+# Check skewness after transformation
+skew_values_transformed <- sapply(df_transformed[numeric_cols], function(x) skewness(x, na.rm = TRUE))
+print("Skewness of transformed features:")
+print(skew_values_transformed)
+
+```
+
+
+Since regression requires data to be normally distributed, I have used log transformation to make it look normally distributed.
+
+## Q 7: Correlation Matrix
+```{r Correlation}
+
+library(corrplot)
+cor_matrix <- cor(df, use = "complete.obs", method = "pearson")
+corrplot(cor_matrix, method = "circle")
+```
+The correlation matrix plot shows high correlation between 'MMAX' and 'PRP', 'MbMIN' and 'MMAX", 'MbMIN' and 'PRP'.
+
+## Q 8: Splitting the dataset
+```{r Splitting the dataset}
+library(ggplot2)
+library(lattice)
+library(caret)
+set.seed(123)
+train_indices <- createDataPartition(y = df$PRP, p = 0.85, list = FALSE)
+
+df.train <- df[train_indices, ]
+df.test <- df[-train_indices, ]
+
+
+```
+The data set is split into training and test data to train the KNN Model.
+
+### Checking the percentage distribution
+```{r percentage distribution}
+prop.table(table(df.train$PRP)) * 100
+prop.table(table(df.test$PRP)) * 100
+```
+This function computes and returns the percentage distribution of patients who need no diagnosis and patients who needs diagnosis. This value will change every time the markdown file is knitted as spliting the data sets into train and test is data is occurring at random.
+
+## Q 9: Building the model
+```{r}
+model <- lm(PRP ~ MYCT + MbMIN + MMAX + CACH + CHMIN + CHMAX, data = df.train)
+summary(model)
+predictions <- predict(model, newdata = df.test)
+predictions
+```
+### Step-wise backward elimination
+```{r elimination}
+step(model, direction = "backward")
+```
+
+
+## Q 10: Model Evaluation
+```{r Model Evaluation}
+mse <- function(actual, predicted) {
+  mean((actual - predicted)^2)
+}
+mse <- mse(df.test$PRP, predictions)
+mse
+```
+The Mean Squared Error was found to be `r mse`.
+
+## Q 11: Making prediction based on new data
+```{r prediction}
+new_cpu <- data.frame(MYCT = 180,
+                      MbMIN = 262,
+                      MMAX = 4000,
+                      CACH = 0,
+                      CHMIN = 1,
+                      CHMAX = 3)
+
+predicted_value <- predict(model, newdata = new_cpu)
+round(predicted_value, 4)
+
+```
+
+
+
+## Q 12: 95% confidence interval prediction
+```{r 95% interval}
+
+prediction_interval <- predict(model, newdata = new_cpu, interval = "prediction", level = 0.95)
+prediction_interval
+
+```
+
+
